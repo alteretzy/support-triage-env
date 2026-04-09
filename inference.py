@@ -10,7 +10,7 @@ MANDATORY environment variables:
 STDOUT FORMAT — DO NOT MODIFY:
   [START] task=<n> env=<benchmark> model=<model>
   [STEP]  step=<n> action=<str> reward=<0.00> done=<true|false> error=<msg|null>
-  [END]   success=<true|false> steps=<n> score=<score> rewards=<r1,r2,...>
+  [END]   success=<true|false> steps=<n> rewards=<r1,r2,...>
 """
 
 import json
@@ -27,10 +27,13 @@ from openai import OpenAI
 # Configuration — read from environment
 # ---------------------------------------------------------------------------
 
-API_KEY: str = os.getenv("HF_TOKEN") or os.getenv("API_KEY") or "hf_placeholder"
-API_BASE_URL: str = os.getenv("API_BASE_URL") or "https://router.huggingface.co/v1"
-MODEL_NAME: str = os.getenv("MODEL_NAME") or "Qwen/Qwen2.5-72B-Instruct"
-SPACE_URL: str = (os.getenv("SPACE_URL") or "http://localhost:7860").rstrip("/")
+HF_TOKEN = os.getenv("HF_TOKEN")
+if HF_TOKEN is None:
+    raise ValueError("HF_TOKEN environment variable is required")
+
+API_BASE_URL: str = os.getenv("API_BASE_URL", "https://router.huggingface.co/v1")
+MODEL_NAME: str = os.getenv("MODEL_NAME", "Qwen/Qwen2.5-72B-Instruct")
+SPACE_URL: str = os.getenv("SPACE_URL", "http://localhost:7860").rstrip("/")
 
 BENCHMARK = "support-triage-env"
 TASKS_TO_RUN = ["easy", "medium", "hard"]
@@ -58,11 +61,11 @@ def log_step(step: int, action: str, reward: float, done: bool, error: Optional[
     )
 
 
-def log_end(success: bool, steps: int, score: float, rewards: List[float]) -> None:
+def log_end(success: bool, steps: int, rewards: List[float]) -> None:
     rewards_str = ",".join(f"{r:.2f}" for r in rewards)
     print(
         f"[END] success={str(success).lower()} steps={steps} "
-        f"score={score:.3f} rewards={rewards_str}",
+        f"rewards={rewards_str}",
         flush=True,
     )
 
@@ -193,7 +196,7 @@ def get_model_action(
         raw = (completion.choices[0].message.content or "").strip()
         return parse_llm_action(raw)
     except Exception as exc:
-        print(f"[DEBUG] LLM call failed: {exc}", flush=True)
+        print(f"[DEBUG] LLM call failed: {exc}", file=sys.stderr, flush=True)
         # Safe fallback: look up logs first, then route to general
         if step == 1:
             return {"action_type": "lookup_logs", "department": None, "note": "fallback"}
@@ -246,18 +249,18 @@ def run_episode(client: OpenAI, task_name: str) -> float:
             if done:
                 break
 
-        # Score = cumulative reward (already in [0,1] from the env)
+        # Score = cumulative reward (already strictly in (0,1) from the env)
         score = float(obs.get("cumulative_reward", sum(rewards)))
-        score = min(max(score, 0.0), 1.0)
+        score = min(max(score, 0.001), 0.999)
         success = score >= SUCCESS_SCORE_THRESHOLD
 
     except Exception as exc:
-        print(f"[DEBUG] Episode error: {exc}", flush=True)
+        print(f"[DEBUG] Episode error: {exc}", file=sys.stderr, flush=True)
         score = 0.0
         success = False
 
     finally:
-        log_end(success=success, steps=steps_taken, score=score, rewards=rewards)
+        log_end(success=success, steps=steps_taken, rewards=rewards)
 
     return score
 
@@ -267,23 +270,23 @@ def run_episode(client: OpenAI, task_name: str) -> float:
 # ---------------------------------------------------------------------------
 
 def main() -> None:
-    client = OpenAI(base_url=API_BASE_URL, api_key=API_KEY)
+    client = OpenAI(base_url=API_BASE_URL, api_key=HF_TOKEN)
 
     all_scores: Dict[str, float] = {}
     for task_name in TASKS_TO_RUN:
-        print(f"\n{'='*60}", flush=True)
-        print(f"[INFO] Running task: {task_name}", flush=True)
-        print(f"{'='*60}", flush=True)
+        print(f"\n{'='*60}", file=sys.stderr, flush=True)
+        print(f"[INFO] Running task: {task_name}", file=sys.stderr, flush=True)
+        print(f"{'='*60}", file=sys.stderr, flush=True)
         score = run_episode(client, task_name)
         all_scores[task_name] = score
-        print(f"[INFO] Task '{task_name}' final score: {score:.3f}", flush=True)
+        print(f"[INFO] Task '{task_name}' final score: {score:.3f}", file=sys.stderr, flush=True)
 
     # Summary
     avg = sum(all_scores.values()) / len(all_scores) if all_scores else 0.0
-    print(f"\n{'='*60}", flush=True)
-    print(f"[SUMMARY] Scores: {all_scores}", flush=True)
-    print(f"[SUMMARY] Average score: {avg:.3f}", flush=True)
-    print(f"{'='*60}", flush=True)
+    print(f"\n{'='*60}", file=sys.stderr, flush=True)
+    print(f"[SUMMARY] Scores: {all_scores}", file=sys.stderr, flush=True)
+    print(f"[SUMMARY] Average score: {avg:.3f}", file=sys.stderr, flush=True)
+    print(f"{'='*60}", file=sys.stderr, flush=True)
 
 
 if __name__ == "__main__":
