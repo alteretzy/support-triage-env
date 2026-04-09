@@ -170,12 +170,12 @@ class SupportTriageEnv:
 
         raw_reward = round(reward, 4)
         # BUG FIX: OpenEnv automated validators strictly verify the returned step
-        # reward is within [0.0, 1.0]. We strictly clamp the returned reward, but we
+        # reward is within (0.0, 1.0). We strictly clamp the returned reward, but we
         # apply the un-clamped penalty (-0.05) directly to cumulative_reward.
-        reward = round(min(max(raw_reward, 0.0), 1.0), 4)
+        reward = round(min(max(raw_reward, 0.001), 0.999), 4)
 
         self._state.cumulative_reward = round(
-            min(max(self._state.cumulative_reward + raw_reward, 0.0), 1.0), 4
+            min(max(self._state.cumulative_reward + raw_reward, 0.001), 0.999), 4
         )
 
         if self._state.step >= self._state.max_steps and not done:
